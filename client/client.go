@@ -62,7 +62,7 @@ func Start(bootnodeIP string, room string) {
 	registerWithBootnode(room, localConn, bootnodeAddr)
 
 	// Send heartbeat to Bootnode
-	go sendHeartbeatToBootnode(localConn, bootnodeAddr, room)
+	go sendHeartbeatToBootnode(room, localConn, bootnodeAddr)
 
 	// Listen for UDP messages, either from Bootnode or Peers
 	go listenForMessages(localConn, localAddr.String())
@@ -132,7 +132,7 @@ func broadcastMessage(plaintextMessage string, conn *net.UDPConn) {
 }
 
 // Sent hearbeat to Bootnode every 10 seconds
-func sendHeartbeatToBootnode(conn *net.UDPConn, bootnodeAddr *net.UDPAddr, room string) {
+func sendHeartbeatToBootnode(room string, conn *net.UDPConn, bootnodeAddr *net.UDPAddr) {
 	ticker := time.NewTicker(HeartbeatInterval * time.Second)
 	defer ticker.Stop()
 
@@ -192,8 +192,11 @@ func listenForMessages(conn *net.UDPConn, local string) {
 		}
 
 		if msg.Type == message.MsgTypePeerDisconnected {
-			UI.RemoveUser(" " + string(msg.Content[:]))
-			UI.AppendContent(fmt.Sprintf("%s left.", msg.Content))
+			peerAddr := string(msg.Content[:])
+			delete(peers, peerAddr)
+
+			UI.RemoveUser(" " + peerAddr)
+			UI.AppendContent(fmt.Sprintf("%s left.", peerAddr))
 		}
 
 		if msg.Type == message.MsgTypeKeyExchange {
