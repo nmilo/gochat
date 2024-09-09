@@ -30,7 +30,7 @@ Once a new client connects its added the table of active peers and its pressence
 
 ### Gracefull disconnects
 
-Clients can handle gracefull disconnects notifiying bootnode of peer disconnection from p2p network. Bootnode removes peer from the list of active peers and relays that information to all active peers on network.
+Clients can handle gracefull disconnects notifying bootnode of peer disconnection from p2p network. Bootnode removes peer from the list of active peers and relays that information to all active peers on network.
 
 ## Usage
 
@@ -43,17 +43,17 @@ make
 Start a bootnode (aka. rendezvous server) on a publicly acccessible server.
 
 ```
-./gochat --mode bootnode --listen 0.0.0.0:4321
+./gochat --mode bootnode --listen 0.0.0.0:9595
 ```
 
 Start client A from a machine behind supported NAT
 ```
-go run main.go --mode client --bootnode <ip_of_bootnode_server>:4321 --room test1
+go run main.go --mode client --bootnode <ip_of_bootnode_server>:9595 --room test1
 ```
 
 Start client B on a different network with supported NAT
 ```
-go run main.go --mode client --bootnode <ip_of_bootnode_server>:4321 --room test1
+go run main.go --mode client --bootnode <ip_of_bootnode_server>:9595 --room test1
 ```
 
 Both clients should register with the bootnode server and establish direct UDP connection.
