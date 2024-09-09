@@ -2,6 +2,8 @@
 
 GoChat is terminal-based p2p chat application using UDP hole punching.
 
+![Demo](/demo.gif "Demo")
+
 ## Features
 
 ### P2P communication over UDP protocol
