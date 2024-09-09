@@ -1,13 +1,13 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math/big"
 	"net"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -22,6 +22,7 @@ type Peer struct {
 	Address   string
 	PublicKey string
 	AesKey    []byte
+	Cancel    context.CancelFunc
 }
 
 var peers = make(map[string]*Peer)
@@ -179,20 +180,29 @@ func listenForMessages(conn *net.UDPConn, local string) {
 		}
 
 		if msg.Type == message.MsgTypePeerConnected {
-			peerAddr := string(msg.Content[:])
+			ctx, cancel := context.WithCancel(context.Background())
 
-			peers[peerAddr] = &Peer{
+			peerAddr := string(msg.Content[:])
+			peer := &Peer{
 				Address: peerAddr,
+				Cancel:  cancel,
 			}
 
-			startKeyExchange(peers[peerAddr], conn)
+			peers[peerAddr] = peer
+
+			startKeyExchange(peer, conn)
 
 			UI.AddUser(" " + peerAddr)
 			UI.AppendContent(fmt.Sprintf("%s joined.", peerAddr))
+
+			go startHolePunching(ctx, conn, peer)
 		}
 
 		if msg.Type == message.MsgTypePeerDisconnected {
 			peerAddr := string(msg.Content[:])
+
+			peer := peers[peerAddr]
+			peer.Cancel()
 			delete(peers, peerAddr)
 
 			UI.RemoveUser(" " + peerAddr)
@@ -217,12 +227,6 @@ func listenForMessages(conn *net.UDPConn, local string) {
 					log.Fatal(err)
 				}
 				peer.AesKey = aesKey
-			}
-		}
-
-		for _, peer := range strings.Split(string(msg.Content[:]), ",") {
-			if peer != local {
-				go startHolePunching(conn, peer)
 			}
 		}
 	}
@@ -253,17 +257,24 @@ func startKeyExchange(peer *Peer, conn *net.UDPConn) {
 }
 
 // Initialize NAT hole punching to keep P2P connection live
-func startHolePunching(conn *net.UDPConn, peerIP string) {
-	peerAddr, _ := net.ResolveUDPAddr("udp", peerIP)
-	for {
-		pingMsg := &message.Message{
-			Type:    message.MsgTypePing,
-			Content: []byte{},
-		}
-		data, _ := pingMsg.Encode()
+func startHolePunching(ctx context.Context, conn *net.UDPConn, peer *Peer) {
+	peerAddr, _ := net.ResolveUDPAddr("udp", peer.Address)
+	pingMsg := &message.Message{
+		Type:    message.MsgTypePing,
+		Content: []byte{},
+	}
+	data, _ := pingMsg.Encode()
 
-		conn.WriteTo(data, peerAddr)
-		time.Sleep(10 * time.Second)
+	for {
+		select {
+		case <-ctx.Done():
+			// Context was canceled, exit the goroutine
+			return
+		default:
+			// Send Ping every 10 seconds
+			conn.WriteTo(data, peerAddr)
+			time.Sleep(10 * time.Second)
+		}
 	}
 }
 
