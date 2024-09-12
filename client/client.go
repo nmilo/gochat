@@ -25,15 +25,16 @@ type Peer struct {
 	Cancel    context.CancelFunc
 }
 
-var peers = make(map[string]*Peer)
+type Client struct {
+	peers             map[string]*Peer
+	privKey           *big.Int
+	pubKey            *big.Int
+	room              string
+	localUDPPort      string
+	heartbeatInterval time.Duration
+}
 
-var privKey *big.Int
-var pubKey *big.Int
-
-const (
-	HeartbeatInterval = 10 // seconds
-	LocalUDPPort      = ":4545"
-)
+var localClient *Client
 
 // Start the client
 func Start(bootnodeIP string, room string) {
@@ -45,8 +46,12 @@ func Start(bootnodeIP string, room string) {
 	UI = ui.NewUI(inputChan)
 	UI.Run()
 
-	// Generate inital pub/private key
-	generateDHKeyPair()
+	// Set up Client
+	localClient, err := initClient()
+	if err != nil {
+		fmt.Println("Error initializing client:", err)
+		os.Exit(1)
+	}
 
 	// Bootnode connection
 	bootnodeAddr, err := net.ResolveUDPAddr("udp", bootnodeIP)
@@ -56,14 +61,14 @@ func Start(bootnodeIP string, room string) {
 	}
 
 	// Local UDP connection for P2P communication and messages from Bootnode
-	localAddr, _ := net.ResolveUDPAddr("udp", LocalUDPPort)
+	localAddr, _ := net.ResolveUDPAddr("udp", localClient.localUDPPort)
 	localConn, _ := net.ListenUDP("udp", localAddr)
 
 	// Register with the bootnode
 	registerWithBootnode(room, localConn, bootnodeAddr)
 
 	// Send heartbeat to Bootnode
-	go sendHeartbeatToBootnode(room, localConn, bootnodeAddr)
+	go sendHeartbeatToBootnode(room, localConn, bootnodeAddr, localClient)
 
 	// Listen for UDP messages, either from Bootnode or Peers
 	go listenForMessages(localConn, localAddr.String())
@@ -89,7 +94,7 @@ func Start(bootnodeIP string, room string) {
 		select {
 		case input := <-inputChan:
 			// User input received, send to peers
-			if len(peers) > 0 {
+			if len(localClient.peers) > 0 {
 				broadcastMessage(input, localConn)
 			}
 
@@ -98,6 +103,24 @@ func Start(bootnodeIP string, room string) {
 			fmt.Println(msg)
 		}
 	}
+}
+
+// Initialize Client instance
+func initClient() (*Client, error) {
+	// Generate inital pub/private key
+	privateKey, publicKey, err := generateDHKeyPair()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate DH key pair: %v", err)
+	}
+
+	client := &Client{
+		privKey:           privateKey,
+		pubKey:            publicKey,
+		localUDPPort:      ":4545",
+		heartbeatInterval: 10 * time.Second,
+	}
+
+	return client, nil
 }
 
 // Send register message to bootnode
@@ -114,7 +137,7 @@ func registerWithBootnode(room string, localConn *net.UDPConn, bootnodeAddr *net
 
 // Broadcast message to all peers
 func broadcastMessage(plaintextMessage string, conn *net.UDPConn) {
-	for peerAddr, peer := range peers {
+	for peerAddr, peer := range localClient.peers {
 		ciphertext, err := p2pcrypto.EncryptMessage(peer.AesKey, plaintextMessage)
 		if err != nil {
 			fmt.Println("Error encrypting message: ", err)
@@ -133,18 +156,16 @@ func broadcastMessage(plaintextMessage string, conn *net.UDPConn) {
 }
 
 // Sent hearbeat to Bootnode every 10 seconds
-func sendHeartbeatToBootnode(room string, conn *net.UDPConn, bootnodeAddr *net.UDPAddr) {
-	ticker := time.NewTicker(HeartbeatInterval * time.Second)
-	defer ticker.Stop()
+func sendHeartbeatToBootnode(room string, conn *net.UDPConn, bootnodeAddr *net.UDPAddr, client *Client) {
+	heartbeatMsg := &message.Message{
+		Type:    message.MsgTypePeerHeartbeat,
+		Content: []byte(room),
+	}
+	data, _ := heartbeatMsg.Encode()
 
-	for range ticker.C {
-		heartbeatMsg := &message.Message{
-			Type:    message.MsgTypePeerHeartbeat,
-			Content: []byte(room),
-		}
-		data, _ := heartbeatMsg.Encode()
-
+	for {
 		conn.WriteTo(data, bootnodeAddr)
+		time.Sleep(client.heartbeatInterval)
 	}
 }
 
@@ -167,7 +188,7 @@ func listenForMessages(conn *net.UDPConn, local string) {
 		}
 
 		if msg.Type == message.MsgTypeChat {
-			peer := peers[remoteAddr.String()]
+			peer := localClient.peers[remoteAddr.String()]
 
 			decryptedMessage, err := p2pcrypto.DecryptMessage(peer.AesKey, msg.Content)
 			if err != nil {
@@ -188,7 +209,7 @@ func listenForMessages(conn *net.UDPConn, local string) {
 				Cancel:  cancel,
 			}
 
-			peers[peerAddr] = peer
+			localClient.peers[peerAddr] = peer
 
 			startKeyExchange(peer, conn)
 
@@ -201,16 +222,16 @@ func listenForMessages(conn *net.UDPConn, local string) {
 		if msg.Type == message.MsgTypePeerDisconnected {
 			peerAddr := string(msg.Content[:])
 
-			peer := peers[peerAddr]
+			peer := localClient.peers[peerAddr]
 			peer.Cancel()
-			delete(peers, peerAddr)
+			delete(localClient.peers, peerAddr)
 
 			UI.RemoveUser(" " + peerAddr)
 			UI.AppendContent(fmt.Sprintf("%s left.", peerAddr))
 		}
 
 		if msg.Type == message.MsgTypeKeyExchange {
-			peer, peerExists := peers[remoteAddr.String()]
+			peer, peerExists := localClient.peers[remoteAddr.String()]
 			if peerExists {
 				peerPublicKey := string(msg.Content[:])
 				peer.PublicKey = peerPublicKey
@@ -222,7 +243,7 @@ func listenForMessages(conn *net.UDPConn, local string) {
 					return
 				}
 
-				aesKey, err := p2pcrypto.PerformKeyExchange(privKey, n)
+				aesKey, err := p2pcrypto.PerformKeyExchange(localClient.privKey, n)
 				if err != nil {
 					log.Fatal(err)
 				}
@@ -233,14 +254,13 @@ func listenForMessages(conn *net.UDPConn, local string) {
 }
 
 // Generate inital key pair
-func generateDHKeyPair() {
-	privKey1, pubKey2, err := p2pcrypto.GenerateKeyPair()
+func generateDHKeyPair() (*big.Int, *big.Int, error) {
+	privKey, pubKey, err := p2pcrypto.GenerateKeyPair()
 	if err != nil {
-		log.Fatal(err)
+		return nil, nil, fmt.Errorf("failed to generate DH key pair: %v", err)
 	}
 
-	pubKey = pubKey2
-	privKey = privKey1
+	return privKey, pubKey, nil
 }
 
 // Send public key to peer for DH key exchange
@@ -249,7 +269,7 @@ func startKeyExchange(peer *Peer, conn *net.UDPConn) {
 
 	keyExchangeMsg := &message.Message{
 		Type:    message.MsgTypeKeyExchange,
-		Content: []byte(pubKey.String()),
+		Content: []byte(localClient.pubKey.String()),
 	}
 	data, _ := keyExchangeMsg.Encode()
 
