@@ -103,6 +103,7 @@ func Start(listen string) {
 // Initialize bootnode struct
 func initializeBootnode() (*Bootnode, error) {
 	bootnode := &Bootnode{
+		rooms:       make(map[string]*Room),
 		mu:          sync.Mutex{},
 		peerTimeout: 15 * time.Second,
 	}
