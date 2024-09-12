@@ -29,7 +29,6 @@ type Client struct {
 	peers             map[string]*Peer
 	privKey           *big.Int
 	pubKey            *big.Int
-	room              string
 	localUDPPort      string
 	heartbeatInterval time.Duration
 }
@@ -37,7 +36,7 @@ type Client struct {
 var localClient *Client
 
 // Start the client
-func Start(bootnodeIP string, room string) {
+func Start(bootnodeIP string, room string, udpPort string) {
 	// Create a channel to receive input from the UI
 	inputChan := make(chan string)
 	peerMsgChan := make(chan string)
@@ -47,7 +46,7 @@ func Start(bootnodeIP string, room string) {
 	UI.Run()
 
 	// Set up Client
-	localClient, err := initClient()
+	localClient, err := initClient(udpPort)
 	if err != nil {
 		fmt.Println("Error initializing client:", err)
 		os.Exit(1)
@@ -61,7 +60,7 @@ func Start(bootnodeIP string, room string) {
 	}
 
 	// Local UDP connection for P2P communication and messages from Bootnode
-	localAddr, _ := net.ResolveUDPAddr("udp", localClient.localUDPPort)
+	localAddr, _ := net.ResolveUDPAddr("udp", ":"+localClient.localUDPPort)
 	localConn, _ := net.ListenUDP("udp", localAddr)
 
 	// Register with the bootnode
@@ -106,7 +105,7 @@ func Start(bootnodeIP string, room string) {
 }
 
 // Initialize Client instance
-func initClient() (*Client, error) {
+func initClient(localUdpPort string) (*Client, error) {
 	// Generate inital pub/private key
 	privateKey, publicKey, err := generateDHKeyPair()
 	if err != nil {
@@ -116,7 +115,7 @@ func initClient() (*Client, error) {
 	client := &Client{
 		privKey:           privateKey,
 		pubKey:            publicKey,
-		localUDPPort:      ":4545",
+		localUDPPort:      localUdpPort,
 		heartbeatInterval: 10 * time.Second,
 	}
 
