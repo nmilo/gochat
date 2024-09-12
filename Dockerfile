@@ -29,10 +29,12 @@ WORKDIR /root/
 COPY --from=builder /app/gochat .
 
 # Define an environment variable for the port
-ENV PORT 4545
+ENV PORT "4545"
+
+ENV MODE "client"
 
 # Expose the port (will be changed dynamically)
 EXPOSE ${PORT}
 
 # Run the Go app
-CMD ["./gochat"]
+ENTRYPOINT [ "app/gochat" ]

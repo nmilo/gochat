@@ -1,6 +1,8 @@
 services:
   gochat:
     build: .
+    stdin_open: true # docker run -i
+    tty: true        # docker run -t
     environment:
       - PORT=${PORT:-4545}
       - MODE=${MODE:-}
@@ -8,12 +10,18 @@ services:
       - ROOM=${ROOM:-}
       - LISTEN=${LISTEN:-}
     ports:
-      - "${PORT}:${PORT}"
+      - "${PORT}:${PORT}/udp"
     entrypoint: >
-      sh -c "
-      ./gochat ${MODE:+ --mode $MODE}
-      ${BOOTNODE:+ --bootnode $BOOTNODE}
-      ${ROOM:+ --room $ROOM}
-      ${LISTEN:+ --listen $LISTEN}
-      "
-   
+      ./gochat
+      {% if MODE %}
+      --mode ${MODE}
+      {% endif MODE %}
+      {% if BOOTNODE %}
+      --bootnode ${BOOTNODE}
+      {% endif BOOTNODE %}
+      {% if ROOM %}
+      --room ${ROOM}
+      {% endif ROOM %}
+      {% if LISTEN %}
+      --listen ${LISTEN}
+      {% endif LISTEN %}
