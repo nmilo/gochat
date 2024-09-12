@@ -31,11 +31,12 @@ var localBootnode *Bootnode
 
 func Start(listen string) {
 	// Initialize bootnode
-	localBootnode, err := initializeBootnode()
+	initializedBootnode, err := initializeBootnode()
 	if err != nil {
 		fmt.Println("Error initializing bootnode:", err)
 		os.Exit(1)
 	}
+	localBootnode = initializedBootnode
 
 	addr, _ := net.ResolveUDPAddr("udp", listen)
 	conn, err := net.ListenUDP("udp", addr)
