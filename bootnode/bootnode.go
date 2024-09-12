@@ -3,6 +3,7 @@ package bootnode
 import (
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -20,13 +21,22 @@ type Room struct {
 	Peers map[string]*PeerConnection
 }
 
-var rooms = make(map[string]*Room)
+type Bootnode struct {
+	mu          sync.Mutex
+	rooms       map[string]*Room
+	peerTimeout time.Duration
+}
 
-const peerTimeout = 15 * time.Second
-
-var mu sync.Mutex
+var localBootnode *Bootnode
 
 func Start(listen string) {
+	// Initialize bootnode
+	localBootnode, err := initializeBootnode()
+	if err != nil {
+		fmt.Println("Error initializing bootnode:", err)
+		os.Exit(1)
+	}
+
 	addr, _ := net.ResolveUDPAddr("udp", listen)
 	conn, err := net.ListenUDP("udp", addr)
 	if err != nil {
@@ -60,33 +70,40 @@ func Start(listen string) {
 			room := string(msg.Content)
 
 			// Lock the peer list and add the new peer
-			mu.Lock()
+			localBootnode.mu.Lock()
 			// Add the new peer to the room
 			newPeerConnection := addPeerToRoom(room, remoteAddr.String(), conn)
 
 			// Send the list of existing peers to the new peer
 			sendExistingPeersList(room, newPeerConnection, conn)
-			mu.Unlock()
+			localBootnode.mu.Unlock()
 		}
 
 		if msg.Type == message.MsgTypePeerHeartbeat {
 			fmt.Printf("Received hearbeat from %s\n", remoteAddr)
 			room := string(msg.Content)
 
-			mu.Lock()
+			localBootnode.mu.Lock()
 			recordHeartbeat(room, remoteAddr)
-			mu.Unlock()
+			localBootnode.mu.Unlock()
 		}
 
 		if msg.Type == message.MsgTypePeerDisconnected {
 			fmt.Printf("Received disconnect from %s\n", remoteAddr)
 			room := string(msg.Content)
 
-			mu.Lock()
+			localBootnode.mu.Lock()
 			removePeerFromRoom(room, remoteAddr.String(), conn)
-			mu.Unlock()
+			localBootnode.mu.Unlock()
 		}
 	}
+}
+
+// Initialize bootnode struct
+func initializeBootnode() (*Bootnode, error) {
+	bootnode := &Bootnode{}
+
+	return bootnode, nil
 }
 
 // Remove stale connections based on last heartbeat
@@ -94,22 +111,22 @@ func pruneInactivePeers(conn *net.UDPConn) {
 	for {
 		time.Sleep(5 * time.Second)
 
-		mu.Lock()
-		for roomName, room := range rooms {
+		localBootnode.mu.Lock()
+		for roomName, room := range localBootnode.rooms {
 			for peerAddr, peer := range room.Peers {
-				if time.Since(peer.LastHeartbeat) > peerTimeout {
+				if time.Since(peer.LastHeartbeat) > localBootnode.peerTimeout {
 					fmt.Printf("Peer %s in room %s timed out and disconnected.\n", peerAddr, roomName)
 					removePeerFromRoom(roomName, peerAddr, conn)
 				}
 			}
 		}
-		mu.Unlock()
+		localBootnode.mu.Unlock()
 	}
 }
 
 // Record heartbeat from client
 func recordHeartbeat(roomName string, peerAddr *net.UDPAddr) {
-	room, roomExists := rooms[roomName]
+	room, roomExists := localBootnode.rooms[roomName]
 	if roomExists {
 		peer, peerExists := room.Peers[peerAddr.String()]
 		if peerExists {
@@ -120,13 +137,13 @@ func recordHeartbeat(roomName string, peerAddr *net.UDPAddr) {
 
 // Add peer to list of peers
 func addPeerToRoom(roomName string, peerAddr string, conn *net.UDPConn) *PeerConnection {
-	room, exists := rooms[roomName]
+	room, exists := localBootnode.rooms[roomName]
 	if !exists {
 		room = &Room{
 			Name:  roomName,
 			Peers: make(map[string]*PeerConnection),
 		}
-		rooms[roomName] = room
+		localBootnode.rooms[roomName] = room
 	}
 	r, _ := net.ResolveUDPAddr("udp", peerAddr)
 
@@ -141,7 +158,7 @@ func addPeerToRoom(roomName string, peerAddr string, conn *net.UDPConn) *PeerCon
 }
 
 func removePeerFromRoom(roomName, peerID string, conn *net.UDPConn) {
-	room, exists := rooms[roomName]
+	room, exists := localBootnode.rooms[roomName]
 	if !exists {
 		return
 	}
@@ -151,7 +168,7 @@ func removePeerFromRoom(roomName, peerID string, conn *net.UDPConn) {
 }
 
 func notifyRoomPeersAboutConnection(roomName, message string, conn *net.UDPConn) {
-	room, exists := rooms[roomName]
+	room, exists := localBootnode.rooms[roomName]
 	if !exists {
 		return
 	}
@@ -163,7 +180,7 @@ func notifyRoomPeersAboutConnection(roomName, message string, conn *net.UDPConn)
 }
 
 func notifyRoomPeersAboutDisconnection(roomName, message string, conn *net.UDPConn) {
-	room, exists := rooms[roomName]
+	room, exists := localBootnode.rooms[roomName]
 	if !exists {
 		return
 	}
@@ -174,7 +191,7 @@ func notifyRoomPeersAboutDisconnection(roomName, message string, conn *net.UDPCo
 }
 
 func sendExistingPeersList(roomName string, newPeerConnection *PeerConnection, conn *net.UDPConn) {
-	room, exists := rooms[roomName]
+	room, exists := localBootnode.rooms[roomName]
 	if !exists {
 		return
 	}
