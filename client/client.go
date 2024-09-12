@@ -46,11 +46,12 @@ func Start(bootnodeIP string, room string, udpPort string) {
 	UI.Run()
 
 	// Set up Client
-	localClient, err := initClient(udpPort)
+	initializedClient, err := initClient(udpPort)
 	if err != nil {
 		fmt.Println("Error initializing client:", err)
 		os.Exit(1)
 	}
+	localClient = initializedClient
 
 	// Bootnode connection
 	bootnodeAddr, err := net.ResolveUDPAddr("udp", bootnodeIP)
@@ -116,6 +117,7 @@ func initClient(localUdpPort string) (*Client, error) {
 		privKey:           privateKey,
 		pubKey:            publicKey,
 		localUDPPort:      localUdpPort,
+		peers:             make(map[string]*Peer),
 		heartbeatInterval: 10 * time.Second,
 	}
 
