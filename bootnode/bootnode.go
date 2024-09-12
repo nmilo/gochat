@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -102,10 +103,15 @@ func Start(listen string) {
 
 // Initialize bootnode struct
 func initializeBootnode() (*Bootnode, error) {
+	peerTimeout := 15 // seconds
+	if os.Getenv("PEER_TIMEOUT") != "" {
+		peerTimeout, _ = strconv.Atoi(os.Getenv("PEER_TIMEOUT"))
+	}
+
 	bootnode := &Bootnode{
 		rooms:       make(map[string]*Room),
 		mu:          sync.Mutex{},
-		peerTimeout: 15 * time.Second,
+		peerTimeout: time.Duration(peerTimeout) * time.Second,
 	}
 
 	return bootnode, nil

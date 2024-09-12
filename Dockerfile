@@ -28,13 +28,5 @@ WORKDIR /root/
 # Copy the binary from builder
 COPY --from=builder /app/gochat .
 
-# Define an environment variable for the port
-ENV PORT "4545"
-
-ENV MODE "client"
-
-# Expose the port (will be changed dynamically)
-EXPOSE ${PORT}
-
 # Run the Go app
 ENTRYPOINT [ "app/gochat" ]

@@ -59,6 +59,41 @@ go run main.go --mode client --bootnode <ip_of_bootnode_server>:9595 --room test
 Both clients should register with the bootnode server and establish direct UDP connection.
 Subsequent communication between peers is possible without a bootnode server.
 
+## Docker usage
+
+If you wish to use Docker you can do so by building a container
+```
+docker-compose build
+```
+Start the container by running
+```
+docker-compose up
+```
+By default Docker will use environment values specified in your .env file.
+
+## Configuration options
+Configuration values are defined by the following hierachy
+
+1. Command line arguments (flags)
+2. Environment variables (.env file)
+3. Default values
+
+For the list of configuration options with example values please check example env file (**.env.example**)
+or consult following table.
+
+
+| Env variable       | Description                                | Flag       | Default Value |
+|:------------------:|:------------------------------------------:|:----------:|:-------------:|
+| LOCAL_UDP_PORT     | UDP port for outgoing/incoming messages    | --port     | 4545          |
+| BOOTNODE_UDP_PORT  | UDP port of bootnode                       |            | 9595          |
+| MODE               | Mode (client or bootnode)                  | --mode     | client        |
+| BOOTNODE           | IP/port of the bootnode                    | --bootnode |               |
+| ROOM               | Room to join                               | --room     |               |
+| LISTEN             | Listening ip/port of bootnode              | --listen   | 0.0.0.0:9595  |
+| HEARTBEAT_INTERVAL | Frequency of sending heartbeat to bootnode |            | 10 (seconds)  |
+| PEER_TIMEOUT       | Time before disconnect                     |            | 15 (seconds)  |
+
+
 ## Supported NATs
 
 - Full Cone NAT

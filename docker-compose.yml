@@ -4,13 +4,15 @@ services:
     stdin_open: true # docker run -i
     tty: true        # docker run -t
     environment:
-      - PORT=${PORT:-4545}
+      - LOCAL_UDP_PORT=${LOCAL_UDP_PORT:-4545}
+      - BOOTNODE_UDP_PORT=${BOOTNODE_UDP_PORT:-9595}
       - MODE=${MODE:-}
       - BOOTNODE=${BOOTNODE:-}
       - ROOM=${ROOM:-}
       - LISTEN=${LISTEN:-}
     ports:
-      - "${PORT}:${PORT}/udp"
+      - "${LOCAL_UDP_PORT}:${LOCAL_UDP_PORT}/udp"
+      - "${BOOTNODE_UDP_PORT}:${BOOTNODE_UDP_PORT}/udp"
     entrypoint: >
       ./gochat
       {% if MODE %}

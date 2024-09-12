@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -113,12 +114,18 @@ func initClient(localUdpPort string) (*Client, error) {
 		return nil, fmt.Errorf("failed to generate DH key pair: %v", err)
 	}
 
+	heartbeatInterval := 10 // seconds
+	if os.Getenv("HEARTBEAT_INTERVAL") != "" {
+		heartbeatInterval, err = strconv.Atoi(os.Getenv("HEARTBEAT_INTERVAL"))
+		return nil, fmt.Errorf("failed to convert heartbeat interval to int: %v", err)
+	}
+
 	client := &Client{
 		privKey:           privateKey,
 		pubKey:            publicKey,
 		localUDPPort:      localUdpPort,
 		peers:             make(map[string]*Peer),
-		heartbeatInterval: 10 * time.Second,
+		heartbeatInterval: time.Duration(heartbeatInterval) * time.Second,
 	}
 
 	return client, nil

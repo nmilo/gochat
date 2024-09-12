@@ -11,11 +11,12 @@ import (
 )
 
 func main() {
+	// Load enviornment variables
 	godotenv.Load(".env")
 
 	defaultUdpPort := "4545" // Default value
-	if os.Getenv("PORT") != "" {
-		defaultUdpPort = os.Getenv("PORT")
+	if os.Getenv("LOCAL_UDP_PORT") != "" {
+		defaultUdpPort = os.Getenv("LOCAL_UDP_PORT")
 	}
 
 	defaultMode := "" // Default value
@@ -28,15 +29,25 @@ func main() {
 		defaultRoom = os.Getenv("ROOM")
 	}
 
+	defaultBootnodeIp := "" // Default value
+	if os.Getenv("BOOTNODE") != "" {
+		defaultBootnodeIp = os.Getenv("BOOTNODE")
+	}
+
+	defaultListen := "0.0.0.0:9595" // Default value
+	if os.Getenv("LISTEN") != "" {
+		defaultListen = os.Getenv("LISTEN")
+	}
+
 	// Set command-line flags
 	mode := flag.String("mode", defaultMode, "Mode to run (bootnode or client)")
 
 	// Bootnode mode flags
-	listen := flag.String("listen", "0.0.0.0:9595", "Listen address")
+	listen := flag.String("listen", defaultListen, "Listen address")
 
 	// Client mode flags
 	room := flag.String("room", defaultRoom, "Room identifier")
-	bootnodeIP := flag.String("bootnode", "", "Bootnode IP address for client mode")
+	bootnodeIP := flag.String("bootnode", defaultBootnodeIp, "Bootnode IP address for client mode")
 	udpPort := flag.String("port", defaultUdpPort, "Local UDP port")
 
 	// Parse the command-line flags
