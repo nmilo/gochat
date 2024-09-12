@@ -13,7 +13,7 @@ import (
 func main() {
 	godotenv.Load(".env")
 
-	defaultUdpPort := "4545" // Default value
+	defaultUdpPort := ":4545" // Default value
 	if os.Getenv("UDP_PORT") != "" {
 		defaultUdpPort = os.Getenv("UDP_PORT")
 	}

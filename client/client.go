@@ -60,7 +60,7 @@ func Start(bootnodeIP string, room string, udpPort string) {
 	}
 
 	// Local UDP connection for P2P communication and messages from Bootnode
-	localAddr, _ := net.ResolveUDPAddr("udp", ":"+localClient.localUDPPort)
+	localAddr, _ := net.ResolveUDPAddr("udp", localClient.localUDPPort)
 	localConn, _ := net.ListenUDP("udp", localAddr)
 
 	// Register with the bootnode
