@@ -101,7 +101,9 @@ func Start(listen string) {
 
 // Initialize bootnode struct
 func initializeBootnode() (*Bootnode, error) {
-	bootnode := &Bootnode{}
+	bootnode := &Bootnode{
+		peerTimeout: 15 * time.Second,
+	}
 
 	return bootnode, nil
 }
