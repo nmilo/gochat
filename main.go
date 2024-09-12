@@ -73,8 +73,10 @@ func main() {
 
 	switch *mode {
 	case "bootnode":
+		fmt.Println("Starting bootnode")
 		bootnode.Start(*listen)
 	case "client":
+		fmt.Println("Starting client")
 		client.Start(*bootnodeIP, *room, *udpPort)
 	default:
 		fmt.Println("Invalid mode. Use 'bootnode' or 'client'.")

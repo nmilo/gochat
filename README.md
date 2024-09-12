@@ -48,12 +48,12 @@ Start a bootnode (aka. rendezvous server) on a publicly accessible server.
 
 Start client A from a machine behind supported NAT
 ```
-go run main.go --mode client --bootnode <ip_of_bootnode_server>:9595 --room test1
+./gochat --mode client --bootnode <ip_of_bootnode_server>:9595 --room test
 ```
 
 Start client B on a different network with supported NAT
 ```
-go run main.go --mode client --bootnode <ip_of_bootnode_server>:9595 --room test1
+./gochat --mode client --bootnode <ip_of_bootnode_server>:9595 --room test
 ```
 
 Both clients should register with the bootnode server and establish direct UDP connection.
@@ -67,8 +67,10 @@ docker-compose build
 ```
 Start the container by running
 ```
-docker-compose up
+docker run -it --rm gochat_gochat --mode client --bootnode <ip_of_bootnode_server>:9595 --room test
 ```
+Note: Docker compose up, is not used to start the container, due to limitations of docker-compose and way it redirects output from terminal.
+
 By default Docker will use environment values specified in your .env file.
 
 ## Configuration options

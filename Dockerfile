@@ -29,4 +29,4 @@ WORKDIR /root/
 COPY --from=builder /app/gochat .
 
 # Run the Go app
-ENTRYPOINT [ "app/gochat" ]
+ENTRYPOINT [ "./gochat" ]
