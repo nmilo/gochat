@@ -1,0 +1,19 @@
+services:
+  gochat:
+    build: .
+    environment:
+      - PORT=${PORT:-4545}
+      - MODE=${MODE:-}
+      - BOOTNODE=${BOOTNODE:-}
+      - ROOM=${ROOM:-}
+      - LISTEN=${LISTEN:-}
+    ports:
+      - "${PORT}:${PORT}"
+    entrypoint: >
+      sh -c "
+      ./gochat ${MODE:+ --mode $MODE}
+      ${BOOTNODE:+ --bootnode $BOOTNODE}
+      ${ROOM:+ --room $ROOM}
+      ${LISTEN:+ --listen $LISTEN}
+      "
+   
