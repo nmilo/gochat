@@ -20,10 +20,12 @@ import (
 var UI *ui.UI
 
 type Peer struct {
-	Address   string
-	PublicKey string
-	AesKey    []byte
-	Cancel    context.CancelFunc
+	Address                  string
+	PublicKey                string
+	AesKey                   []byte
+	Cancel                   context.CancelFunc
+	UDPConnectionEstablished bool
+	KeysExchanged            bool
 }
 
 type Client struct {
@@ -213,18 +215,23 @@ func listenForMessages(conn *net.UDPConn, local string) {
 
 			peerAddr := string(msg.Content[:])
 			peer := &Peer{
-				Address: peerAddr,
-				Cancel:  cancel,
+				Address:                  peerAddr,
+				UDPConnectionEstablished: false,
+				KeysExchanged:            false,
+				Cancel:                   cancel,
 			}
 
 			localClient.peers[peerAddr] = peer
 
-			startKeyExchange(peer, conn)
+			// Try to Establish UDP connection
+			go startHolePunching(ctx, conn, peer)
 
+			// Perform DH key exchange
+			go startKeyExchange(peer, conn)
+
+			// Update TUI
 			UI.AddUser(" " + peerAddr)
 			UI.AppendContent(fmt.Sprintf("%s joined.", peerAddr))
-
-			go startHolePunching(ctx, conn, peer)
 		}
 
 		if msg.Type == message.MsgTypePeerDisconnected {
@@ -236,6 +243,14 @@ func listenForMessages(conn *net.UDPConn, local string) {
 
 			UI.RemoveUser(" " + peerAddr)
 			UI.AppendContent(fmt.Sprintf("%s left.", peerAddr))
+		}
+
+		if msg.Type == message.MsgTypePing {
+			peer, peerExists := localClient.peers[remoteAddr.String()]
+
+			if peerExists {
+				peer.UDPConnectionEstablished = true
+			}
 		}
 
 		if msg.Type == message.MsgTypeKeyExchange {
@@ -279,9 +294,17 @@ func startKeyExchange(peer *Peer, conn *net.UDPConn) {
 		Type:    message.MsgTypeKeyExchange,
 		Content: []byte(localClient.pubKey.String()),
 	}
-	data, _ := keyExchangeMsg.Encode()
+	keyExchangeData, _ := keyExchangeMsg.Encode()
 
-	conn.WriteTo(data, peerAddr)
+	for {
+		if peer.UDPConnectionEstablished && peer.KeysExchanged != true {
+			conn.WriteTo(keyExchangeData, peerAddr)
+			peer.KeysExchanged = true
+			break
+		}
+
+		time.Sleep(1 * time.Second) // Sleep for 1 second before checking again
+	}
 }
 
 // Initialize NAT hole punching to keep P2P connection live
