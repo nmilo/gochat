@@ -78,6 +78,7 @@ func Start(listen string) {
 			// Add the new peer to the room
 			newPeerConnection := addPeerToRoom(room, peerAddr, conn)
 
+			// Unlock the peer list
 			localBootnode.mu.Unlock()
 
 			// Notify room peers about new connection
@@ -195,17 +196,19 @@ func notifyRoomPeersAboutConnection(roomName, message string, conn *net.UDPConn)
 	}
 }
 
-func notifyRoomPeersAboutDisconnection(roomName, message string, conn *net.UDPConn) {
+// Sends message to peers about peer disconnection
+func notifyRoomPeersAboutDisconnection(roomName, peerID string, conn *net.UDPConn) {
 	room, exists := localBootnode.rooms[roomName]
 	if !exists {
 		return
 	}
 
 	for _, peer := range room.Peers {
-		sendPeerDisconnectedMessage(peer.Conn, message, conn)
+		sendPeerDisconnectedMessage(peer.Conn, peerID, conn)
 	}
 }
 
+// Sends list of existing peers one by one
 func sendExistingPeersList(roomName string, newPeerConnection *PeerConnection, conn *net.UDPConn) {
 	room, exists := localBootnode.rooms[roomName]
 	if !exists {
@@ -219,6 +222,7 @@ func sendExistingPeersList(roomName string, newPeerConnection *PeerConnection, c
 	}
 }
 
+// Sends message about peer connection
 func sendPeerConnectedMessage(addr net.Addr, messageContent string, conn *net.UDPConn) {
 	peerConnectedMsg := &message.Message{
 		Type:    message.MsgTypePeerConnected,
@@ -233,6 +237,7 @@ func sendPeerConnectedMessage(addr net.Addr, messageContent string, conn *net.UD
 	fmt.Printf("Notified %s about peer %s\n connection", addr, []byte(messageContent))
 }
 
+// Sends message about peer disconnection
 func sendPeerDisconnectedMessage(addr net.Addr, messageContent string, conn *net.UDPConn) {
 	peerConnectedMsg := &message.Message{
 		Type:    message.MsgTypePeerDisconnected,

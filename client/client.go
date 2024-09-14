@@ -49,7 +49,7 @@ func Start(bootnodeIP string, room string, udpPort string) {
 	// Set up Client
 	initializedClient, err := initClient(udpPort)
 	if err != nil {
-		fmt.Println("Error initializing client:", err)
+		UI.AppendContent(fmt.Sprintf("Error initializing the client: %s", err))
 		os.Exit(1)
 	}
 	localClient = initializedClient
@@ -57,7 +57,7 @@ func Start(bootnodeIP string, room string, udpPort string) {
 	// Bootnode connection
 	bootnodeAddr, err := net.ResolveUDPAddr("udp", bootnodeIP)
 	if err != nil {
-		fmt.Println("Error resolving bootnode address:", err)
+		UI.AppendContent(fmt.Sprintf("Error resolving bootnode address: %s", err))
 		os.Exit(1)
 	}
 
@@ -148,7 +148,7 @@ func broadcastMessage(plaintextMessage string, conn *net.UDPConn) {
 	for peerAddr, peer := range localClient.peers {
 		ciphertext, err := p2pcrypto.EncryptMessage(peer.AesKey, plaintextMessage)
 		if err != nil {
-			fmt.Println("Error encrypting message: ", err)
+			UI.AppendContent(fmt.Sprintf("Error encrypting the message: %s", err))
 			return
 		}
 
@@ -184,14 +184,14 @@ func listenForMessages(conn *net.UDPConn, local string) {
 
 		n, remoteAddr, err := conn.ReadFromUDP(buffer)
 		if err != nil {
-			fmt.Println("Error reading from UDP connection: ", err)
+			UI.AppendContent(fmt.Sprintf("Error reading from UDP connection: %s", err))
 			continue
 		}
 
 		// Decode the message from bytes
 		msg, err := message.Decode(buffer[:n])
 		if err != nil {
-			fmt.Println("Error decoding the message: ", err)
+			UI.AppendContent(fmt.Sprintf("Error decoding the message: %s", err))
 			continue
 		}
 
@@ -200,7 +200,7 @@ func listenForMessages(conn *net.UDPConn, local string) {
 
 			decryptedMessage, err := p2pcrypto.DecryptMessage(peer.AesKey, msg.Content)
 			if err != nil {
-				fmt.Println("Error decrypting the message: ", err)
+				UI.AppendContent(fmt.Sprintf("Error decrypting the message: %s", err))
 				continue
 			}
 
@@ -247,7 +247,7 @@ func listenForMessages(conn *net.UDPConn, local string) {
 				n := new(big.Int)
 				n, ok := n.SetString(peerPublicKey, 10)
 				if !ok {
-					fmt.Println("SetString: error")
+					UI.AppendContent(fmt.Sprintf("Error parsing peer's public key: %s", peerPublicKey))
 					return
 				}
 
