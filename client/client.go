@@ -147,6 +147,12 @@ func registerWithBootnode(room string, localConn *net.UDPConn, bootnodeAddr *net
 // Broadcast message to all peers
 func broadcastMessage(plaintextMessage string, conn *net.UDPConn) {
 	for peerAddr, peer := range localClient.peers {
+
+		if len(peer.AesKey) == 0 {
+			UI.AppendContent("Unable to send message, key exchange not completed.")
+			continue
+		}
+
 		ciphertext, err := p2pcrypto.EncryptMessage(peer.AesKey, plaintextMessage)
 		if err != nil {
 			UI.AppendContent(fmt.Sprintf("Error encrypting the message: %s", err))
