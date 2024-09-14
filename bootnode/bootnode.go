@@ -70,15 +70,21 @@ func Start(listen string) {
 		if msg.Type == message.MsgTypeRegister {
 			fmt.Println("Peer connected:", remoteAddr)
 			room := string(msg.Content)
+			peerAddr := remoteAddr.String()
 
 			// Lock the peer list and add the new peer
 			localBootnode.mu.Lock()
+
 			// Add the new peer to the room
-			newPeerConnection := addPeerToRoom(room, remoteAddr.String(), conn)
+			newPeerConnection := addPeerToRoom(room, peerAddr, conn)
+
+			localBootnode.mu.Unlock()
+
+			// Notify room peers about new connection
+			notifyRoomPeersAboutConnection(room, peerAddr, conn)
 
 			// Send the list of existing peers to the new peer
 			sendExistingPeersList(room, newPeerConnection, conn)
-			localBootnode.mu.Unlock()
 		}
 
 		if msg.Type == message.MsgTypePeerHeartbeat {
@@ -163,7 +169,6 @@ func addPeerToRoom(roomName string, peerAddr string, conn *net.UDPConn) *PeerCon
 		LastHeartbeat: time.Now(),
 		Conn:          r,
 	}
-	notifyRoomPeersAboutConnection(roomName, peerAddr, conn)
 
 	return room.Peers[peerAddr]
 }
