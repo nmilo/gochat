@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/big"
 	"net"
 	"os"
@@ -263,14 +262,17 @@ func listenForMessages(conn *net.UDPConn, local string) {
 				n, ok := n.SetString(peerPublicKey, 10)
 				if !ok {
 					UI.AppendContent(fmt.Sprintf("Error parsing peer's public key: %s", peerPublicKey))
-					return
+					continue
 				}
 
 				aesKey, err := p2pcrypto.PerformKeyExchange(localClient.privKey, n)
 				if err != nil {
-					log.Fatal(err)
+					UI.AppendContent(fmt.Sprintf("Error performing key exchange: %s", err))
+					continue
 				}
+
 				peer.AesKey = aesKey
+				peer.KeysExchanged = true
 			}
 		}
 	}
@@ -297,9 +299,8 @@ func startKeyExchange(peer *Peer, conn *net.UDPConn) {
 	keyExchangeData, _ := keyExchangeMsg.Encode()
 
 	for {
-		if peer.UDPConnectionEstablished && peer.KeysExchanged != true {
+		if peer.UDPConnectionEstablished {
 			conn.WriteTo(keyExchangeData, peerAddr)
-			peer.KeysExchanged = true
 			break
 		}
 
