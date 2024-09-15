@@ -385,16 +385,26 @@ func sparkConnection(ctx context.Context, conn *net.UDPConn, peer *Peer) {
 	}
 	data, _ := pingMsg.Encode()
 
-	for {
+	// Initialize retry variables
+	retries := 0
+	var maxRetries = 10 // Maximum number of retry attempts
+
+	for retries < maxRetries {
+		retries++
+
 		if peer.UDPConnectionEstablished {
-			// Main UDP connection
+			// Start new goroutine to maintain UDP connection
 			go maintainUDPConnection(ctx, conn, peer)
-			return
+			break
 		}
 
 		// Send UDP packet every 200 ms
 		conn.WriteTo(data, peerAddr)
 		time.Sleep(200 * time.Millisecond)
+	}
+
+	if !peer.UDPConnectionEstablished {
+		UI.AppendContent(fmt.Sprintf("[red]error[-]: Failed to establish UDP connection with peer: %s", peer.Address))
 	}
 }
 
