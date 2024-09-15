@@ -130,7 +130,7 @@ func Start(listen string) {
 
 func sendSignedSecret(peerAddr *net.UDPAddr, conn *net.UDPConn, clientPubBytes []byte) {
 	serverPriv := localBootnode.ecdsaPrivKey
-	clientPubKey, err := x509.ParsePKIXPublicKey(clientPubBytes[:256])
+	clientPubKey, err := x509.ParsePKIXPublicKey(clientPubBytes)
 	if err != nil {
 		log.Println("Failed to parse client's public key:", err)
 		return
