@@ -80,18 +80,6 @@ func Start(bootnodeIP string, room string, udpPort string) {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
-	// Wait for a signal
-	go func() {
-		sig := <-sigs
-		fmt.Println("Received signal:", sig)
-
-		// Perform graceful disconnect action
-		disconnect(localConn, bootnodeAddr, room)
-
-		fmt.Println("Graceful shutdown complete.")
-		os.Exit(0)
-	}()
-
 	// Main loop to handle both user input and peer messages
 	for {
 		select {
@@ -100,6 +88,15 @@ func Start(bootnodeIP string, room string, udpPort string) {
 			if len(localClient.peers) > 0 {
 				broadcastMessage(input, localConn)
 			}
+
+		case sig := <-sigs:
+			fmt.Println("Received signal:", sig)
+
+			// Perform graceful disconnect action
+			disconnect(localConn, bootnodeAddr, room)
+
+			fmt.Println("Graceful shutdown complete.")
+			os.Exit(0)
 
 		case msg := <-peerMsgChan:
 			// Message received from peers or bootnode
