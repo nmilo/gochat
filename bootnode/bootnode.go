@@ -29,11 +29,11 @@ type Room struct {
 }
 
 type Bootnode struct {
-	mu              sync.Mutex
-	rooms           map[string]*Room
-	peerTimeout     time.Duration
-	ecdsaPublicKey  *ecdsa.PublicKey
-	ecdsaPrivateKey *ecdsa.PrivateKey
+	mu           sync.Mutex
+	rooms        map[string]*Room
+	peerTimeout  time.Duration
+	ecdsaPrivKey *ecdsa.PrivateKey
+	ecdsaPubKey  ecdsa.PublicKey
 }
 
 var localBootnode *Bootnode
@@ -129,7 +129,7 @@ func Start(listen string) {
 }
 
 func sendSignedSecret(peerAddr *net.UDPAddr, conn *net.UDPConn, clientPubBytes []byte) {
-	serverPriv := localBootnode.ecdsaPrivateKey
+	serverPriv := localBootnode.ecdsaPrivKey
 	clientPubKey, err := x509.ParsePKIXPublicKey(clientPubBytes[:256])
 	if err != nil {
 		log.Println("Failed to parse client's public key:", err)
@@ -157,10 +157,10 @@ func sendSignedSecret(peerAddr *net.UDPAddr, conn *net.UDPConn, clientPubBytes [
 func sendPublicKey(peerAddr *net.UDPAddr, conn *net.UDPConn) {
 
 	// Public ECDSA key
-	serverPub := localBootnode.ecdsaPublicKey
+	serverPub := localBootnode.ecdsaPubKey
 
 	// Serialize the public key
-	pubBytes, err := x509.MarshalPKIXPublicKey(serverPub)
+	pubBytes, err := x509.MarshalPKIXPublicKey(&serverPub)
 	if err != nil {
 		log.Println(err)
 		return
@@ -194,11 +194,11 @@ func initializeBootnode() (*Bootnode, error) {
 	serverPub := serverPriv.PublicKey
 
 	bootnode := &Bootnode{
-		rooms:           make(map[string]*Room),
-		mu:              sync.Mutex{},
-		peerTimeout:     time.Duration(peerTimeout) * time.Second,
-		ecdsaPublicKey:  &serverPub,
-		ecdsaPrivateKey: serverPriv,
+		rooms:        make(map[string]*Room),
+		mu:           sync.Mutex{},
+		peerTimeout:  time.Duration(peerTimeout) * time.Second,
+		ecdsaPubKey:  serverPub,
+		ecdsaPrivKey: serverPriv,
 	}
 
 	return bootnode, nil

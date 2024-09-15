@@ -275,7 +275,7 @@ func sendHeartbeatToBootnode(room string, conn *net.UDPConn, bootnodeAddr *net.U
 // Sent public key to Bootnode
 func sendPublicKeyToBootnode(conn *net.UDPConn, bootnodeAddr *net.UDPAddr) {
 
-	pubBytes, err := x509.MarshalPKIXPublicKey(localClient.ecdsaPubKey)
+	pubBytes, err := x509.MarshalPKIXPublicKey(&localClient.ecdsaPubKey)
 	if err != nil {
 		log.Fatal(err)
 	}
