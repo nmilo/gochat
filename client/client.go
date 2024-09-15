@@ -70,13 +70,14 @@ func Start(bootnodeIP string, room string, udpPort string) {
 	// Bootnode connection
 	bootnodeAddr, err := net.ResolveUDPAddr("udp", bootnodeIP)
 	if err != nil {
-		UI.AppendContent(fmt.Sprintf("Error resolving bootnode address: %s", err))
+		UI.AppendContent(fmt.Sprintf("[red]error[-]: Error resolving bootnode address: %s", err))
 		os.Exit(1)
 	}
 
 	// Local UDP connection for P2P communication and messages from Bootnode
 	localAddr, _ := net.ResolveUDPAddr("udp", localClient.localUDPPort)
 	localConn, _ := net.ListenUDP("udp", localAddr)
+	defer localConn.Close()
 
 	// Register with the bootnode
 	registerWithBootnode(room, localConn, bootnodeAddr)
@@ -176,7 +177,7 @@ func registerWithBootnode(room string, localConn *net.UDPConn, bootnodeAddr *net
 		_, err := localConn.WriteTo(data, bootnodeAddr)
 
 		if err != nil {
-			UI.AppendContent(fmt.Sprintf("Error sending registration message: %s", err))
+			UI.AppendContent(fmt.Sprintf("[red]error[-]: Error sending registration message: %s", err))
 			return
 		}
 
@@ -196,7 +197,7 @@ func registerWithBootnode(room string, localConn *net.UDPConn, bootnodeAddr *net
 			// Extract and process the acknowledgment message
 			msg, err := message.Decode(buffer[:n])
 			if err != nil {
-				UI.AppendContent(fmt.Sprintf("Error decoding the message: %s", err))
+				UI.AppendContent(fmt.Sprintf("[red]error[-]: Error decoding the message: %s", err))
 				continue
 			}
 
@@ -210,7 +211,7 @@ func registerWithBootnode(room string, localConn *net.UDPConn, bootnodeAddr *net
 
 				ackReceived = true
 			} else {
-				UI.AppendContent(fmt.Sprintf("Unexpected response from bootnode: %s", confirmationMessage))
+				UI.AppendContent(fmt.Sprintf("[red]error[-]: Unexpected response from bootnode: %s", confirmationMessage))
 			}
 		}
 
@@ -243,7 +244,7 @@ func broadcastMessage(plaintextMessage string, conn *net.UDPConn) {
 
 		ciphertext, err := p2pcrypto.EncryptMessage(peer.AesKey, plaintextMessage)
 		if err != nil {
-			UI.AppendContent(fmt.Sprintf("Error encrypting the message: %s", err))
+			UI.AppendContent(fmt.Sprintf("[red]error[-]: Error encrypting the message: %s", err))
 			return
 		}
 
@@ -296,23 +297,24 @@ func listenForMessages(conn *net.UDPConn, local string) {
 
 		n, remoteAddr, err := conn.ReadFromUDP(buffer)
 		if err != nil {
-			UI.AppendContent(fmt.Sprintf("Error reading from UDP connection: %s", err))
+			UI.AppendContent(fmt.Sprintf("[red]error[-]: Error reading from UDP connection: %s", err))
 			continue
 		}
 
 		// Decode the message from bytes
 		msg, err := message.Decode(buffer[:n])
 		if err != nil {
-			UI.AppendContent(fmt.Sprintf("Error decoding the message: %s", err))
+			UI.AppendContent(fmt.Sprintf("[red]error[-]: Error decoding the message: %s", err))
 			continue
 		}
 
+		// Chat message
 		if msg.Type == message.MsgTypeChat {
 			peer := localClient.peers[remoteAddr.String()]
 
 			decryptedMessage, err := p2pcrypto.DecryptMessage(peer.AesKey, msg.Content)
 			if err != nil {
-				UI.AppendContent(fmt.Sprintf("Error decrypting the message: %s", err))
+				UI.AppendContent(fmt.Sprintf("[red]error[-]: Error decrypting the message: %s", err))
 				continue
 			}
 
@@ -320,6 +322,7 @@ func listenForMessages(conn *net.UDPConn, local string) {
 			continue
 		}
 
+		// Peer connected message
 		if msg.Type == message.MsgTypePeerConnected {
 			ctx, cancel := context.WithCancel(context.Background())
 
@@ -341,6 +344,7 @@ func listenForMessages(conn *net.UDPConn, local string) {
 			UI.AppendContent(fmt.Sprintf("[blue]info[-]: %s joined.", peerAddr))
 		}
 
+		// Peer disconnected message
 		if msg.Type == message.MsgTypePeerDisconnected {
 			peerAddr := string(msg.Content[:])
 
@@ -352,6 +356,7 @@ func listenForMessages(conn *net.UDPConn, local string) {
 			UI.AppendContent(fmt.Sprintf("[blue]info[-]: %s left.", peerAddr))
 		}
 
+		// Ping message from peer
 		if msg.Type == message.MsgTypePing {
 			peer, peerExists := localClient.peers[remoteAddr.String()]
 
@@ -364,6 +369,7 @@ func listenForMessages(conn *net.UDPConn, local string) {
 			}
 		}
 
+		// Start key exchange with peer
 		if msg.Type == message.MsgTypeKeyExchange {
 			peer, peerExists := localClient.peers[remoteAddr.String()]
 			if peerExists {
@@ -373,13 +379,13 @@ func listenForMessages(conn *net.UDPConn, local string) {
 				n := new(big.Int)
 				n, ok := n.SetString(peerPublicKey, 10)
 				if !ok {
-					UI.AppendContent(fmt.Sprintf("Error parsing peer's public key: %s", peerPublicKey))
+					UI.AppendContent(fmt.Sprintf("[red]error[-]: Error parsing peer's public key: %s", peerPublicKey))
 					continue
 				}
 
 				aesKey, err := p2pcrypto.PerformKeyExchange(localClient.privKey, n)
 				if err != nil {
-					UI.AppendContent(fmt.Sprintf("Error performing key exchange: %s", err))
+					UI.AppendContent(fmt.Sprintf("[red]error[-]: Error performing key exchange: %s", err))
 					continue
 				}
 
@@ -388,21 +394,22 @@ func listenForMessages(conn *net.UDPConn, local string) {
 			}
 		}
 
+		// Perform key exchange with Bootnode
 		if msg.Type == message.MsgTypeBootnodeKeyExchange {
 			serverPubBytes := msg.Content
 			serverPubKey, err := x509.ParsePKIXPublicKey(serverPubBytes)
 			if err != nil {
-				UI.AppendContent(fmt.Sprintf("Failed to parse server's public key: %s", err))
+				UI.AppendContent(fmt.Sprintf("[red]error[-]: Failed to parse server's public key: %s", err))
 			}
 
 			serverPub = serverPubKey.(*ecdsa.PublicKey)
 		}
 
+		// Verify ECDSA signature from Bootnode
 		if msg.Type == message.MsgTypeSignedSecret {
 			// Generate the shared secret
 			sharedSecretX, _ := localClient.ecdsaPubKey.ScalarMult(serverPub.X, serverPub.Y, localClient.ecdsaPrivKey.D.Bytes())
 			sharedSecret := sha256.Sum256(sharedSecretX.Bytes())
-			UI.AppendContent(fmt.Sprintf("Client shared secret: %x\n", sharedSecret))
 
 			sig := msg.Content
 
@@ -413,15 +420,15 @@ func listenForMessages(conn *net.UDPConn, local string) {
 			// Verify the signature
 			valid := ecdsa.Verify(serverPub, sharedSecret[:], r, s)
 			if valid {
-				UI.AppendContent("Signature verified. Secure communication established.")
+				UI.AppendContent("[blue]info[-]: Signature verified. Secure communication established.")
 			} else {
-				UI.AppendContent("Signature verification failed. Possible MITM attack.")
+				UI.AppendContent("[blue]info[-]: Signature verification failed. Possible MITM attack.")
 			}
 		}
 	}
 }
 
-// Generate inital key pair
+// Generate inital DH key pair
 func generateDHKeyPair() (*big.Int, *big.Int, error) {
 	privKey, pubKey, err := p2pcrypto.GenerateKeyPair()
 	if err != nil {
@@ -488,7 +495,7 @@ func maintainUDPConnection(ctx context.Context, conn *net.UDPConn, peer *Peer) {
 	for {
 		select {
 		case <-ctx.Done():
-			// Context was canceled, exit the goroutine
+			// Closes this goroutine once peer disconnects
 			return
 		default:
 			// Send Ping every 10 seconds
