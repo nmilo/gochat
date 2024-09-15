@@ -402,7 +402,7 @@ func listenForMessages(conn *net.UDPConn, local string) {
 			// Generate the shared secret
 			sharedSecretX, _ := localClient.ecdsaPubKey.ScalarMult(serverPub.X, serverPub.Y, localClient.ecdsaPrivKey.D.Bytes())
 			sharedSecret := sha256.Sum256(sharedSecretX.Bytes())
-			fmt.Printf("Client shared secret: %x\n", sharedSecret)
+			UI.AppendContent(fmt.Sprintf("Client shared secret: %x\n", sharedSecret))
 
 			sig := msg.Content
 

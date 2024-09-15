@@ -147,8 +147,20 @@ func sendSignedSecret(peerAddr *net.UDPAddr, conn *net.UDPConn, clientPubBytes [
 		log.Println("Failed to sign shared secret:", err)
 		return
 	}
+
 	sig := append(r.Bytes(), s.Bytes()...)
-	conn.Write(sig)
+
+	// Build signed secret message for client
+	keyExchangeMsg := &message.Message{
+		Type:    message.MsgTypeSignedSecret,
+		Content: sig,
+	}
+	data, _ := keyExchangeMsg.Encode()
+
+	_, err = conn.WriteTo(data, peerAddr)
+	if err != nil {
+		fmt.Println("Error sending message to peer:", err)
+	}
 
 	fmt.Println("Signed shared secret sent to the client.")
 }
@@ -167,11 +179,11 @@ func sendPublicKey(peerAddr *net.UDPAddr, conn *net.UDPConn) {
 	}
 
 	// Build key exchange message for client
-	registerSuccessMsg := &message.Message{
+	keyExchangeMsg := &message.Message{
 		Type:    message.MsgTypeBootnodeKeyExchange,
 		Content: pubBytes,
 	}
-	data, _ := registerSuccessMsg.Encode()
+	data, _ := keyExchangeMsg.Encode()
 
 	_, err = conn.WriteTo(data, peerAddr)
 	if err != nil {
