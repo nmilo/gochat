@@ -217,7 +217,7 @@ func broadcastMessage(plaintextMessage string, conn *net.UDPConn) {
 	for peerAddr, peer := range localClient.peers {
 
 		if len(peer.AesKey) == 0 {
-			UI.AppendContent("Unable to send message, key exchange not completed.")
+			UI.AppendContent("[blue]info[-]: Unable to send message, key exchange not completed.")
 			continue
 		}
 
@@ -299,9 +299,6 @@ func listenForMessages(conn *net.UDPConn, local string) {
 			// Try to Establish UDP connection
 			go startHolePunching(ctx, conn, peer)
 
-			// Perform DH key exchange
-			go startKeyExchange(peer, conn)
-
 			// Update TUI
 			UI.AddUser(" " + peerAddr)
 			UI.AppendContent(fmt.Sprintf("[blue]info[-]: %s joined.", peerAddr))
@@ -322,7 +319,11 @@ func listenForMessages(conn *net.UDPConn, local string) {
 			peer, peerExists := localClient.peers[remoteAddr.String()]
 
 			if peerExists {
+				// UDP tunnel established
 				peer.UDPConnectionEstablished = true
+
+				// Perform DH key exchange
+				go startKeyExchange(peer, conn)
 			}
 		}
 
@@ -372,14 +373,7 @@ func startKeyExchange(peer *Peer, conn *net.UDPConn) {
 	}
 	keyExchangeData, _ := keyExchangeMsg.Encode()
 
-	for {
-		if peer.UDPConnectionEstablished {
-			conn.WriteTo(keyExchangeData, peerAddr)
-			break
-		}
-
-		time.Sleep(1 * time.Second) // Sleep for 1 second before checking again
-	}
+	conn.WriteTo(keyExchangeData, peerAddr)
 }
 
 // Initialize NAT hole punching to keep P2P connection live
