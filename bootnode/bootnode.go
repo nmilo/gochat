@@ -29,17 +29,18 @@ type Room struct {
 }
 
 type Bootnode struct {
-	mu              sync.Mutex
-	rooms           map[string]*Room
-	peerTimeout     time.Duration
-	ecdsaPublicKey  *ecdsa.PublicKey
-	ecdsaPrivateKey *ecdsa.PrivateKey
+	mu           sync.Mutex
+	rooms        map[string]*Room
+	peerTimeout  time.Duration
+	ecdsaPrivKey *ecdsa.PrivateKey
+	ecdsaPubKey  ecdsa.PublicKey
 }
 
 var localBootnode *Bootnode
 
+// Start bootnode process
 func Start(listen string) {
-	// Initialize bootnode
+	// Initialize Bootnode
 	initializedBootnode, err := initializeBootnode()
 	if err != nil {
 		fmt.Println("Error initializing bootnode:", err)
@@ -57,6 +58,7 @@ func Start(listen string) {
 
 	fmt.Printf("Bootnode is listening on %s\n", listen)
 
+	// Start process to prune inactive connections
 	go pruneInactivePeers(conn)
 
 	// Accept connections
@@ -99,6 +101,7 @@ func Start(listen string) {
 			sendExistingPeersList(room, newPeerConnection, conn)
 		}
 
+		// Update last heartbeat timestamp for peer
 		if msg.Type == message.MsgTypePeerHeartbeat {
 			fmt.Printf("Received hearbeat from %s\n", remoteAddr)
 			room := string(msg.Content)
@@ -108,6 +111,7 @@ func Start(listen string) {
 			localBootnode.mu.Unlock()
 		}
 
+		// Remove peer for list
 		if msg.Type == message.MsgTypePeerDisconnected {
 			fmt.Printf("Received disconnect from %s\n", remoteAddr)
 			room := string(msg.Content)
@@ -117,6 +121,7 @@ func Start(listen string) {
 			localBootnode.mu.Unlock()
 		}
 
+		// Send public key and signed secret to peer
 		if msg.Type == message.MsgTypeBootnodeKeyExchange {
 			peerAddr := remoteAddr.String()
 			r, _ := net.ResolveUDPAddr("udp", peerAddr)
@@ -128,9 +133,10 @@ func Start(listen string) {
 	}
 }
 
+// Send signed shared secret to peer
 func sendSignedSecret(peerAddr *net.UDPAddr, conn *net.UDPConn, clientPubBytes []byte) {
-	serverPriv := localBootnode.ecdsaPrivateKey
-	clientPubKey, err := x509.ParsePKIXPublicKey(clientPubBytes[:256])
+	serverPriv := localBootnode.ecdsaPrivKey
+	clientPubKey, err := x509.ParsePKIXPublicKey(clientPubBytes)
 	if err != nil {
 		log.Println("Failed to parse client's public key:", err)
 		return
@@ -147,8 +153,20 @@ func sendSignedSecret(peerAddr *net.UDPAddr, conn *net.UDPConn, clientPubBytes [
 		log.Println("Failed to sign shared secret:", err)
 		return
 	}
+
 	sig := append(r.Bytes(), s.Bytes()...)
-	conn.Write(sig)
+
+	// Build signed secret message for client
+	keyExchangeMsg := &message.Message{
+		Type:    message.MsgTypeSignedSecret,
+		Content: sig,
+	}
+	data, _ := keyExchangeMsg.Encode()
+
+	_, err = conn.WriteTo(data, peerAddr)
+	if err != nil {
+		fmt.Println("Error sending message to peer:", err)
+	}
 
 	fmt.Println("Signed shared secret sent to the client.")
 }
@@ -157,21 +175,21 @@ func sendSignedSecret(peerAddr *net.UDPAddr, conn *net.UDPConn, clientPubBytes [
 func sendPublicKey(peerAddr *net.UDPAddr, conn *net.UDPConn) {
 
 	// Public ECDSA key
-	serverPub := localBootnode.ecdsaPublicKey
+	serverPub := localBootnode.ecdsaPubKey
 
 	// Serialize the public key
-	pubBytes, err := x509.MarshalPKIXPublicKey(serverPub)
+	pubBytes, err := x509.MarshalPKIXPublicKey(&serverPub)
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
 	// Build key exchange message for client
-	registerSuccessMsg := &message.Message{
+	keyExchangeMsg := &message.Message{
 		Type:    message.MsgTypeBootnodeKeyExchange,
 		Content: pubBytes,
 	}
-	data, _ := registerSuccessMsg.Encode()
+	data, _ := keyExchangeMsg.Encode()
 
 	_, err = conn.WriteTo(data, peerAddr)
 	if err != nil {
@@ -194,11 +212,11 @@ func initializeBootnode() (*Bootnode, error) {
 	serverPub := serverPriv.PublicKey
 
 	bootnode := &Bootnode{
-		rooms:           make(map[string]*Room),
-		mu:              sync.Mutex{},
-		peerTimeout:     time.Duration(peerTimeout) * time.Second,
-		ecdsaPublicKey:  &serverPub,
-		ecdsaPrivateKey: serverPriv,
+		rooms:        make(map[string]*Room),
+		mu:           sync.Mutex{},
+		peerTimeout:  time.Duration(peerTimeout) * time.Second,
+		ecdsaPubKey:  serverPub,
+		ecdsaPrivKey: serverPriv,
 	}
 
 	return bootnode, nil
@@ -270,6 +288,7 @@ func addPeerToRoom(roomName string, peerAddr string, conn *net.UDPConn) *PeerCon
 	return room.Peers[peerAddr]
 }
 
+// Removes peer from the room
 func removePeerFromRoom(roomName, peerID string, conn *net.UDPConn) {
 	room, exists := localBootnode.rooms[roomName]
 	if !exists {
@@ -280,6 +299,7 @@ func removePeerFromRoom(roomName, peerID string, conn *net.UDPConn) {
 	notifyRoomPeersAboutDisconnection(roomName, peerID, conn)
 }
 
+// Sends notificatin to room peers about new connection
 func notifyRoomPeersAboutConnection(roomName, message string, conn *net.UDPConn) {
 	room, exists := localBootnode.rooms[roomName]
 	if !exists {
