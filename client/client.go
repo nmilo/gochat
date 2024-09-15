@@ -296,8 +296,8 @@ func listenForMessages(conn *net.UDPConn, local string) {
 
 			localClient.peers[peerAddr] = peer
 
-			// Try to Establish UDP connection
-			go startHolePunching(ctx, conn, peer)
+			// Spark UDP connection
+			go sparkConnection(ctx, conn, peer)
 
 			// Update TUI
 			UI.AddUser(" " + peerAddr)
@@ -318,7 +318,7 @@ func listenForMessages(conn *net.UDPConn, local string) {
 		if msg.Type == message.MsgTypePing {
 			peer, peerExists := localClient.peers[remoteAddr.String()]
 
-			if peerExists {
+			if peerExists && !peer.UDPConnectionEstablished {
 				// UDP tunnel established
 				peer.UDPConnectionEstablished = true
 
@@ -376,8 +376,30 @@ func startKeyExchange(peer *Peer, conn *net.UDPConn) {
 	conn.WriteTo(keyExchangeData, peerAddr)
 }
 
-// Initialize NAT hole punching to keep P2P connection live
-func startHolePunching(ctx context.Context, conn *net.UDPConn, peer *Peer) {
+// Send UDP packets to establish NAT hole (UDP connection)
+func sparkConnection(ctx context.Context, conn *net.UDPConn, peer *Peer) {
+	peerAddr, _ := net.ResolveUDPAddr("udp", peer.Address)
+	pingMsg := &message.Message{
+		Type:    message.MsgTypePing,
+		Content: []byte{},
+	}
+	data, _ := pingMsg.Encode()
+
+	for {
+		if peer.UDPConnectionEstablished {
+			// Main UDP connection
+			go maintainUDPConnection(ctx, conn, peer)
+			return
+		}
+
+		// Send UDP packet every 200 ms
+		conn.WriteTo(data, peerAddr)
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// Periodically send UDP packet to keep NAT record active on peer's machine and P2P connection live
+func maintainUDPConnection(ctx context.Context, conn *net.UDPConn, peer *Peer) {
 	peerAddr, _ := net.ResolveUDPAddr("udp", peer.Address)
 	pingMsg := &message.Message{
 		Type:    message.MsgTypePing,
