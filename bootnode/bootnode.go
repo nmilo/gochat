@@ -89,8 +89,8 @@ func Start(listen string) {
 			// Unlock the peer list
 			localBootnode.mu.Unlock()
 
-			// Send Register Success back to client
-			sendRegisterSucccess(newPeerConnection, conn, msg.ExtraContent)
+			// Send ACK back to client
+			sendAckToClient(newPeerConnection, conn)
 
 			// Notify room peers about new connection
 			notifyRoomPeersAboutConnection(room, peerAddr, conn)
@@ -116,6 +116,66 @@ func Start(listen string) {
 			removePeerFromRoom(room, remoteAddr.String(), conn)
 			localBootnode.mu.Unlock()
 		}
+
+		if msg.Type == message.MsgTypeBootnodeKeyExchange {
+			peerAddr := remoteAddr.String()
+			r, _ := net.ResolveUDPAddr("udp", peerAddr)
+
+			sendPublicKey(r, conn)
+
+			sendSignedSecret(r, conn, msg.Content)
+		}
+	}
+}
+
+func sendSignedSecret(peerAddr *net.UDPAddr, conn *net.UDPConn, clientPubBytes []byte) {
+	serverPriv := localBootnode.ecdsaPrivateKey
+	clientPubKey, err := x509.ParsePKIXPublicKey(clientPubBytes[:256])
+	if err != nil {
+		log.Println("Failed to parse client's public key:", err)
+		return
+	}
+	clientPub := clientPubKey.(*ecdsa.PublicKey)
+
+	sharedSecretX, _ := serverPriv.PublicKey.ScalarMult(clientPub.X, clientPub.Y, serverPriv.D.Bytes())
+	sharedSecret := sha256.Sum256(sharedSecretX.Bytes())
+	fmt.Printf("Server shared secret: %x\n", sharedSecret)
+
+	// Sign the shared secret with the server's private key
+	r, s, err := ecdsa.Sign(rand.Reader, serverPriv, sharedSecret[:])
+	if err != nil {
+		log.Println("Failed to sign shared secret:", err)
+		return
+	}
+	sig := append(r.Bytes(), s.Bytes()...)
+	conn.Write(sig)
+
+	fmt.Println("Signed shared secret sent to the client.")
+}
+
+// Send bootnode's public key to the client
+func sendPublicKey(peerAddr *net.UDPAddr, conn *net.UDPConn) {
+
+	// Public ECDSA key
+	serverPub := localBootnode.ecdsaPublicKey
+
+	// Serialize the public key
+	pubBytes, err := x509.MarshalPKIXPublicKey(serverPub)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	// Build key exchange message for client
+	registerSuccessMsg := &message.Message{
+		Type:    message.MsgTypeBootnodeKeyExchange,
+		Content: pubBytes,
+	}
+	data, _ := registerSuccessMsg.Encode()
+
+	_, err = conn.WriteTo(data, peerAddr)
+	if err != nil {
+		fmt.Println("Error sending message to peer:", err)
 	}
 }
 
@@ -162,50 +222,20 @@ func pruneInactivePeers(conn *net.UDPConn) {
 	}
 }
 
-// Send back register success to the client
-func sendRegisterSucccess(peerConnection *PeerConnection, conn *net.UDPConn, clientPubBytes []byte) {
-	// Marshall bootnode's public key
-	pubBytes, err := x509.MarshalPKIXPublicKey(&localBootnode.ecdsaPublicKey)
-	if err != nil {
-		fmt.Println("Error marshalling bootnode public key:", err)
-		return
+// Send back ACK to the client
+func sendAckToClient(peerConnection *PeerConnection, conn *net.UDPConn) {
+
+	peerConnectedMsg := &message.Message{
+		Type:    message.MsgTypeRegister,
+		Content: []byte("ACK"),
 	}
+	data, _ := peerConnectedMsg.Encode()
 
-	serverPriv := localBootnode.ecdsaPrivateKey
-	clientPubKey, err := x509.ParsePKIXPublicKey(clientPubBytes)
-	if err != nil {
-		log.Println("Failed to parse client's public key:", err)
-		return
-	}
-	clientPub := clientPubKey.(*ecdsa.PublicKey)
-
-	sharedSecretX, _ := serverPriv.PublicKey.ScalarMult(clientPub.X, clientPub.Y, serverPriv.D.Bytes())
-	sharedSecret := sha256.Sum256(sharedSecretX.Bytes())
-	fmt.Printf("Server shared secret: %x\n", sharedSecret)
-
-	// Sign the shared secret with the server's private key
-	r, s, err := ecdsa.Sign(rand.Reader, serverPriv, sharedSecret[:])
-	if err != nil {
-		log.Println("Failed to sign shared secret:", err)
-		return
-	}
-	sig := append(r.Bytes(), s.Bytes()...)
-
-	// Build Register Success message for client
-	registerSuccessMsg := &message.Message{
-		Type:         message.MsgTypeRegister,
-		Content:      pubBytes,
-		ExtraContent: sig,
-	}
-	data, _ := registerSuccessMsg.Encode()
-
-	_, err = conn.WriteTo(data, peerConnection.Conn)
+	_, err := conn.WriteTo(data, peerConnection.Conn)
 	if err != nil {
 		fmt.Println("Error sending message to peer:", err)
-		return
 	}
-
-	fmt.Printf("Sent Register Success to %s\n", peerConnection.Conn.String())
+	fmt.Printf("Sent ACK to %s\n", peerConnection.Conn.String())
 }
 
 // Record heartbeat from client

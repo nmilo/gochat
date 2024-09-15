@@ -15,13 +15,14 @@ const (
 	MsgTypePeerHeartbeat
 	MsgTypePing
 	MsgTypeKeyExchange
+	MsgTypeBootnodeKeyExchange
+	MsgTypeSignedSecret
 )
 
 // Message struct
 type Message struct {
-	Type         uint8  // Message type: register, chat, ping etc.
-	Content      []byte // The actual message content
-	ExtraContent []byte // Used for additional content
+	Type    uint8  // Message type: register, chat, ping etc.
+	Content []byte // The actual message content
 }
 
 // Encode the Message struct to bytes

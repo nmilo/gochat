@@ -38,12 +38,15 @@ type Client struct {
 	privKey           *big.Int
 	pubKey            *big.Int
 	ecdsaPrivKey      *ecdsa.PrivateKey
-	ecdsaPubKey       *ecdsa.PublicKey
+	ecdsaPubKey       ecdsa.PublicKey
 	localUDPPort      string
 	heartbeatInterval time.Duration
 }
 
 var localClient *Client
+
+var serverPub *ecdsa.PublicKey
+var sig []byte
 
 // Start the client
 func Start(bootnodeIP string, room string, udpPort string) {
@@ -139,7 +142,7 @@ func initClient(localUdpPort string) (*Client, error) {
 		privKey:           privateKey,
 		pubKey:            publicKey,
 		ecdsaPrivKey:      clientPriv,
-		ecdsaPubKey:       &clientPub,
+		ecdsaPubKey:       clientPub,
 		localUDPPort:      localUdpPort,
 		peers:             make(map[string]*Peer),
 		heartbeatInterval: time.Duration(heartbeatInterval) * time.Second,
@@ -160,17 +163,10 @@ func registerWithBootnode(room string, localConn *net.UDPConn, bootnodeAddr *net
 	var maxRetries = 4                    // Maximum number of retry attempts
 	var timeoutDuration = 2 * time.Second // Timeout for receiving confirmation
 
-	clientPublicKey, err := x509.MarshalPKIXPublicKey(localClient.ecdsaPubKey)
-	if err != nil {
-		UI.AppendContent(fmt.Sprintf("[red]error[-]: Error marshalling the ECDSA public key: %s", err))
-		return
-	}
-
 	// Build register message
 	registerMsg := &message.Message{
-		Type:         message.MsgTypeRegister,
-		Content:      []byte(room),
-		ExtraContent: clientPublicKey,
+		Type:    message.MsgTypeRegister,
+		Content: []byte(room),
 	}
 	data, _ := registerMsg.Encode()
 
@@ -180,7 +176,7 @@ func registerWithBootnode(room string, localConn *net.UDPConn, bootnodeAddr *net
 		_, err := localConn.WriteTo(data, bootnodeAddr)
 
 		if err != nil {
-			UI.AppendContent(fmt.Sprintf("[red]error[-]: Error sending registration message: %s", err))
+			UI.AppendContent(fmt.Sprintf("Error sending registration message: %s", err))
 			return
 		}
 
@@ -201,40 +197,20 @@ func registerWithBootnode(room string, localConn *net.UDPConn, bootnodeAddr *net
 			msg, err := message.Decode(buffer[:n])
 			if err != nil {
 				UI.AppendContent(fmt.Sprintf("Error decoding the message: %s", err))
-				os.Exit(1)
+				continue
 			}
 
-			serverPubBytes := msg.Content
-			serverPubKey, err := x509.ParsePKIXPublicKey(serverPubBytes[:n])
-			if err != nil {
-				UI.AppendContent(fmt.Sprintf("[red]error[-]: Failed to parse server's public key: %s", err))
-				os.Exit(1)
-			}
+			confirmationMessage := string(msg.Content)
 
-			serverPub := serverPubKey.(*ecdsa.PublicKey)
+			// Check if the acknowledgment matches the expected "ACK"
+			if confirmationMessage == "ACK" {
+				sendPublicKeyToBootnode(localConn, bootnodeAddr)
 
-			clientPriv := localClient.ecdsaPrivKey
-
-			// Generate the shared secret
-			sharedSecretX, _ := clientPriv.PublicKey.ScalarMult(serverPub.X, serverPub.Y, clientPriv.D.Bytes())
-			sharedSecret := sha256.Sum256(sharedSecretX.Bytes())
-			fmt.Printf("Client shared secret: %x\n", sharedSecret)
-
-			// Receive the signature from the server
-			sig := msg.ExtraContent
-
-			// Extract r and s from the signature
-			r := new(big.Int).SetBytes(sig[:32])
-			s := new(big.Int).SetBytes(sig[32:])
-
-			// Verify the signature
-			valid := ecdsa.Verify(serverPub, sharedSecret[:], r, s)
-			if valid {
 				UI.AppendContent("[blue]info[-]: Connection established with Bootnode")
-				UI.AppendContent("Signature verified. Secure communication established.")
+
 				ackReceived = true
 			} else {
-				UI.AppendContent("[red]error[-]: Signature verification failed. Possible MITM attack.")
+				UI.AppendContent(fmt.Sprintf("Unexpected response from bootnode: %s", confirmationMessage))
 			}
 		}
 
@@ -245,12 +221,14 @@ func registerWithBootnode(room string, localConn *net.UDPConn, bootnodeAddr *net
 			if retries < maxRetries {
 				// Add a short delay before retrying
 				time.Sleep(2 * time.Second)
-			} else {
-				// Exit if no acknowledgment was recieved from bootnode after max retry attempts
-				UI.AppendContent(fmt.Sprintf("[blue]info[-]: Failed to register with the bootnode after %d attempts. Exiting.\n", maxRetries))
-				os.Exit(1)
 			}
 		}
+	}
+
+	// Exit if no acknowledgment was recieved from bootnode after max retry attempts
+	if !ackReceived {
+		UI.AppendContent(fmt.Sprintf("[blue]info[-]: Failed to register with the bootnode after %d attempts. Exiting.\n", maxRetries))
+		os.Exit(1)
 	}
 }
 
@@ -292,6 +270,23 @@ func sendHeartbeatToBootnode(room string, conn *net.UDPConn, bootnodeAddr *net.U
 		conn.WriteTo(data, bootnodeAddr)
 		time.Sleep(client.heartbeatInterval)
 	}
+}
+
+// Sent public key to Bootnode
+func sendPublicKeyToBootnode(conn *net.UDPConn, bootnodeAddr *net.UDPAddr) {
+
+	pubBytes, err := x509.MarshalPKIXPublicKey(localClient.ecdsaPubKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	pubKeyMsg := &message.Message{
+		Type:    message.MsgTypeBootnodeKeyExchange,
+		Content: pubBytes,
+	}
+	data, _ := pubKeyMsg.Encode()
+
+	conn.WriteTo(data, bootnodeAddr)
 }
 
 // Listen for UDP messages
@@ -390,6 +385,37 @@ func listenForMessages(conn *net.UDPConn, local string) {
 
 				peer.AesKey = aesKey
 				peer.KeysExchanged = true
+			}
+		}
+
+		if msg.Type == message.MsgTypeBootnodeKeyExchange {
+			serverPubBytes := msg.Content
+			serverPubKey, err := x509.ParsePKIXPublicKey(serverPubBytes)
+			if err != nil {
+				UI.AppendContent(fmt.Sprintf("Failed to parse server's public key: %s", err))
+			}
+
+			serverPub = serverPubKey.(*ecdsa.PublicKey)
+		}
+
+		if msg.Type == message.MsgTypeSignedSecret {
+			// Generate the shared secret
+			sharedSecretX, _ := localClient.ecdsaPubKey.ScalarMult(serverPub.X, serverPub.Y, localClient.ecdsaPrivKey.D.Bytes())
+			sharedSecret := sha256.Sum256(sharedSecretX.Bytes())
+			fmt.Printf("Client shared secret: %x\n", sharedSecret)
+
+			sig := msg.Content
+
+			// Extract r and s from the signature
+			r := new(big.Int).SetBytes(sig[:32])
+			s := new(big.Int).SetBytes(sig[32:])
+
+			// Verify the signature
+			valid := ecdsa.Verify(serverPub, sharedSecret[:], r, s)
+			if valid {
+				UI.AppendContent("Signature verified. Secure communication established.")
+			} else {
+				UI.AppendContent("Signature verification failed. Possible MITM attack.")
 			}
 		}
 	}
