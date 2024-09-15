@@ -48,9 +48,10 @@ func Start(bootnodeIP string, room string, udpPort string) {
 	UI.Run()
 
 	// Set up Client
+
 	initializedClient, err := initClient(udpPort)
 	if err != nil {
-		UI.AppendContent(fmt.Sprintf("Error initializing the client: %s", err))
+		UI.AppendContent(fmt.Sprintf("[red]error[-]: Error initializing the client: %s", err))
 		os.Exit(1)
 	}
 	localClient = initializedClient
@@ -134,14 +135,79 @@ func initClient(localUdpPort string) (*Client, error) {
 
 // Send register message to bootnode
 func registerWithBootnode(room string, localConn *net.UDPConn, bootnodeAddr *net.UDPAddr) {
+	UI.AppendContent("[blue]info[-]: Sent Register to Bootnode")
+
+	// Initialize retry variables
+	retries := 0
+	var ackReceived bool
+	var maxRetries = 4                    // Maximum number of retry attempts
+	var timeoutDuration = 2 * time.Second // Timeout for receiving confirmation
+
+	// Build register message
 	registerMsg := &message.Message{
 		Type:    message.MsgTypeRegister,
 		Content: []byte(room),
 	}
 	data, _ := registerMsg.Encode()
 
-	localConn.WriteTo(data, bootnodeAddr)
-	UI.AppendContent("Sent Register to Bootnode")
+	// Retry loop for sending the registration message and waiting for acknowledgment
+	for retries < maxRetries && !ackReceived {
+		// Send registration message
+		_, err := localConn.WriteTo(data, bootnodeAddr)
+
+		if err != nil {
+			UI.AppendContent(fmt.Sprintf("Error sending registration message: %s", err))
+			return
+		}
+
+		if retries > 0 {
+			UI.AppendContent(fmt.Sprintf("[blue]info[-]: Retrying to connect with the bootnode... Attempt %d/%d", retries, maxRetries-1))
+		}
+
+		// Set a read deadline for the confirmation
+		localConn.SetReadDeadline(time.Now().Add(timeoutDuration))
+
+		// Buffer to store incoming response
+		buffer := make([]byte, 1024)
+
+		// Wait for acknowledgment from the bootnode
+		n, _, err := localConn.ReadFromUDP(buffer)
+		if err == nil {
+			// Extract and process the acknowledgment message
+			msg, err := message.Decode(buffer[:n])
+			if err != nil {
+				UI.AppendContent(fmt.Sprintf("Error decoding the message: %s", err))
+				continue
+			}
+
+			confirmationMessage := string(msg.Content)
+
+			// Check if the acknowledgment matches the expected "ACK"
+			if confirmationMessage == "ACK" {
+				UI.AppendContent("[blue]info[-]: Connection established with Bootnode")
+
+				ackReceived = true
+			} else {
+				UI.AppendContent(fmt.Sprintf("Unexpected response from bootnode: %s", confirmationMessage))
+			}
+		}
+
+		// Increment retry count if acknowledgment is not received
+		if !ackReceived {
+			retries++
+
+			if retries < maxRetries {
+				// Add a short delay before retrying
+				time.Sleep(2 * time.Second)
+			}
+		}
+	}
+
+	// Exit if no acknowledgment was recieved from bootnode after max retry attempts
+	if !ackReceived {
+		UI.AppendContent(fmt.Sprintf("[blue]info[-]: Failed to register with the bootnode after %d attempts. Exiting.\n", maxRetries))
+		os.Exit(1)
+	}
 }
 
 // Broadcast message to all peers
@@ -236,7 +302,7 @@ func listenForMessages(conn *net.UDPConn, local string) {
 
 			// Update TUI
 			UI.AddUser(" " + peerAddr)
-			UI.AppendContent(fmt.Sprintf("%s joined.", peerAddr))
+			UI.AppendContent(fmt.Sprintf("[blue]info[-]: %s joined.", peerAddr))
 		}
 
 		if msg.Type == message.MsgTypePeerDisconnected {
@@ -247,7 +313,7 @@ func listenForMessages(conn *net.UDPConn, local string) {
 			delete(localClient.peers, peerAddr)
 
 			UI.RemoveUser(" " + peerAddr)
-			UI.AppendContent(fmt.Sprintf("%s left.", peerAddr))
+			UI.AppendContent(fmt.Sprintf("[blue]info[-]: %s left.", peerAddr))
 		}
 
 		if msg.Type == message.MsgTypePing {

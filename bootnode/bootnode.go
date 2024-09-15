@@ -81,6 +81,9 @@ func Start(listen string) {
 			// Unlock the peer list
 			localBootnode.mu.Unlock()
 
+			// Send ACK back to client
+			sendAckToClient(newPeerConnection, conn)
+
 			// Notify room peers about new connection
 			notifyRoomPeersAboutConnection(room, peerAddr, conn)
 
@@ -140,6 +143,22 @@ func pruneInactivePeers(conn *net.UDPConn) {
 		}
 		localBootnode.mu.Unlock()
 	}
+}
+
+// Send back ACK to the client
+func sendAckToClient(peerConnection *PeerConnection, conn *net.UDPConn) {
+
+	peerConnectedMsg := &message.Message{
+		Type:    message.MsgTypeRegister,
+		Content: []byte("ACK"),
+	}
+	data, _ := peerConnectedMsg.Encode()
+
+	_, err := conn.WriteTo(data, peerConnection.Conn)
+	if err != nil {
+		fmt.Println("Error sending message to peer:", err)
+	}
+	fmt.Printf("Sent ACK to %s", peerConnection.Conn.String())
 }
 
 // Record heartbeat from client
