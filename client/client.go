@@ -68,7 +68,7 @@ func Start(bootnodeIP string, room string, udpPort string) {
 	localConn, _ := net.ListenUDP("udp", localAddr)
 
 	// Register with the bootnode
-	registerWithBootnode(room, bootnodeAddr)
+	registerWithBootnode(room, localConn, bootnodeAddr)
 
 	// Send heartbeat to Bootnode
 	go sendHeartbeatToBootnode(room, localConn, bootnodeAddr, localClient)
@@ -134,12 +134,10 @@ func initClient(localUdpPort string) (*Client, error) {
 }
 
 // Send register message to bootnode
-func registerWithBootnode(room string, bootnodeAddr *net.UDPAddr) {
+func registerWithBootnode(room string, localConn *net.UDPConn, bootnodeAddr *net.UDPAddr) {
 	UI.AppendContent("[blue]info[-]: Sent Register to Bootnode")
 
-	// Create new UDP connection
-	localAddr, _ := net.ResolveUDPAddr("udp", localClient.localUDPPort)
-	localConn, _ := net.ListenUDP("udp", localAddr)
+	defer localConn.SetReadDeadline(time.Time{})
 
 	// Initialize retry variables
 	retries := 0

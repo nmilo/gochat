@@ -158,7 +158,7 @@ func sendAckToClient(peerConnection *PeerConnection, conn *net.UDPConn) {
 	if err != nil {
 		fmt.Println("Error sending message to peer:", err)
 	}
-	fmt.Printf("Sent ACK to %s", peerConnection.Conn.String())
+	fmt.Printf("Sent ACK to %s\n", peerConnection.Conn.String())
 }
 
 // Record heartbeat from client
