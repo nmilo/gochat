@@ -1,7 +1,13 @@
 package bootnode
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strconv"
@@ -23,9 +29,11 @@ type Room struct {
 }
 
 type Bootnode struct {
-	mu          sync.Mutex
-	rooms       map[string]*Room
-	peerTimeout time.Duration
+	mu              sync.Mutex
+	rooms           map[string]*Room
+	peerTimeout     time.Duration
+	ecdsaPublicKey  *ecdsa.PublicKey
+	ecdsaPrivateKey *ecdsa.PrivateKey
 }
 
 var localBootnode *Bootnode
@@ -81,8 +89,8 @@ func Start(listen string) {
 			// Unlock the peer list
 			localBootnode.mu.Unlock()
 
-			// Send ACK back to client
-			sendAckToClient(newPeerConnection, conn)
+			// Send Register Success back to client
+			sendRegisterSucccess(newPeerConnection, conn, msg.ExtraContent)
 
 			// Notify room peers about new connection
 			notifyRoomPeersAboutConnection(room, peerAddr, conn)
@@ -118,10 +126,19 @@ func initializeBootnode() (*Bootnode, error) {
 		peerTimeout, _ = strconv.Atoi(os.Getenv("PEER_TIMEOUT"))
 	}
 
+	// Generate the server's ECDSA private and public keys
+	serverPriv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		log.Fatal(err)
+	}
+	serverPub := serverPriv.PublicKey
+
 	bootnode := &Bootnode{
-		rooms:       make(map[string]*Room),
-		mu:          sync.Mutex{},
-		peerTimeout: time.Duration(peerTimeout) * time.Second,
+		rooms:           make(map[string]*Room),
+		mu:              sync.Mutex{},
+		peerTimeout:     time.Duration(peerTimeout) * time.Second,
+		ecdsaPublicKey:  &serverPub,
+		ecdsaPrivateKey: serverPriv,
 	}
 
 	return bootnode, nil
@@ -145,20 +162,50 @@ func pruneInactivePeers(conn *net.UDPConn) {
 	}
 }
 
-// Send back ACK to the client
-func sendAckToClient(peerConnection *PeerConnection, conn *net.UDPConn) {
-
-	peerConnectedMsg := &message.Message{
-		Type:    message.MsgTypeRegister,
-		Content: []byte("ACK"),
+// Send back register success to the client
+func sendRegisterSucccess(peerConnection *PeerConnection, conn *net.UDPConn, clientPubBytes []byte) {
+	// Marshall bootnode's public key
+	pubBytes, err := x509.MarshalPKIXPublicKey(&localBootnode.ecdsaPublicKey)
+	if err != nil {
+		fmt.Println("Error marshalling bootnode public key:", err)
+		return
 	}
-	data, _ := peerConnectedMsg.Encode()
 
-	_, err := conn.WriteTo(data, peerConnection.Conn)
+	serverPriv := localBootnode.ecdsaPrivateKey
+	clientPubKey, err := x509.ParsePKIXPublicKey(clientPubBytes)
+	if err != nil {
+		log.Println("Failed to parse client's public key:", err)
+		return
+	}
+	clientPub := clientPubKey.(*ecdsa.PublicKey)
+
+	sharedSecretX, _ := serverPriv.PublicKey.ScalarMult(clientPub.X, clientPub.Y, serverPriv.D.Bytes())
+	sharedSecret := sha256.Sum256(sharedSecretX.Bytes())
+	fmt.Printf("Server shared secret: %x\n", sharedSecret)
+
+	// Sign the shared secret with the server's private key
+	r, s, err := ecdsa.Sign(rand.Reader, serverPriv, sharedSecret[:])
+	if err != nil {
+		log.Println("Failed to sign shared secret:", err)
+		return
+	}
+	sig := append(r.Bytes(), s.Bytes()...)
+
+	// Build Register Success message for client
+	registerSuccessMsg := &message.Message{
+		Type:         message.MsgTypeRegister,
+		Content:      pubBytes,
+		ExtraContent: sig,
+	}
+	data, _ := registerSuccessMsg.Encode()
+
+	_, err = conn.WriteTo(data, peerConnection.Conn)
 	if err != nil {
 		fmt.Println("Error sending message to peer:", err)
+		return
 	}
-	fmt.Printf("Sent ACK to %s\n", peerConnection.Conn.String())
+
+	fmt.Printf("Sent Register Success to %s\n", peerConnection.Conn.String())
 }
 
 // Record heartbeat from client

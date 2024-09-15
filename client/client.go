@@ -2,7 +2,13 @@ package client
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
 	"fmt"
+	"log"
 	"math/big"
 	"net"
 	"os"
@@ -31,6 +37,8 @@ type Client struct {
 	peers             map[string]*Peer
 	privKey           *big.Int
 	pubKey            *big.Int
+	ecdsaPrivKey      *ecdsa.PrivateKey
+	ecdsaPubKey       *ecdsa.PublicKey
 	localUDPPort      string
 	heartbeatInterval time.Duration
 }
@@ -119,9 +127,19 @@ func initClient(localUdpPort string) (*Client, error) {
 		return nil, fmt.Errorf("failed to convert heartbeat interval to int: %v", err)
 	}
 
+	// Generate ECDSA key pair
+	clientPriv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	clientPub := clientPriv.PublicKey
+
 	client := &Client{
 		privKey:           privateKey,
 		pubKey:            publicKey,
+		ecdsaPrivKey:      clientPriv,
+		ecdsaPubKey:       &clientPub,
 		localUDPPort:      localUdpPort,
 		peers:             make(map[string]*Peer),
 		heartbeatInterval: time.Duration(heartbeatInterval) * time.Second,
@@ -142,10 +160,17 @@ func registerWithBootnode(room string, localConn *net.UDPConn, bootnodeAddr *net
 	var maxRetries = 4                    // Maximum number of retry attempts
 	var timeoutDuration = 2 * time.Second // Timeout for receiving confirmation
 
+	clientPublicKey, err := x509.MarshalPKIXPublicKey(localClient.ecdsaPubKey)
+	if err != nil {
+		UI.AppendContent(fmt.Sprintf("[red]error[-]: Error marshalling the ECDSA public key: %s", err))
+		return
+	}
+
 	// Build register message
 	registerMsg := &message.Message{
-		Type:    message.MsgTypeRegister,
-		Content: []byte(room),
+		Type:         message.MsgTypeRegister,
+		Content:      []byte(room),
+		ExtraContent: clientPublicKey,
 	}
 	data, _ := registerMsg.Encode()
 
@@ -155,7 +180,7 @@ func registerWithBootnode(room string, localConn *net.UDPConn, bootnodeAddr *net
 		_, err := localConn.WriteTo(data, bootnodeAddr)
 
 		if err != nil {
-			UI.AppendContent(fmt.Sprintf("Error sending registration message: %s", err))
+			UI.AppendContent(fmt.Sprintf("[red]error[-]: Error sending registration message: %s", err))
 			return
 		}
 
@@ -176,18 +201,40 @@ func registerWithBootnode(room string, localConn *net.UDPConn, bootnodeAddr *net
 			msg, err := message.Decode(buffer[:n])
 			if err != nil {
 				UI.AppendContent(fmt.Sprintf("Error decoding the message: %s", err))
-				continue
+				os.Exit(1)
 			}
 
-			confirmationMessage := string(msg.Content)
+			serverPubBytes := msg.Content
+			serverPubKey, err := x509.ParsePKIXPublicKey(serverPubBytes[:n])
+			if err != nil {
+				UI.AppendContent(fmt.Sprintf("[red]error[-]: Failed to parse server's public key: %s", err))
+				os.Exit(1)
+			}
 
-			// Check if the acknowledgment matches the expected "ACK"
-			if confirmationMessage == "ACK" {
+			serverPub := serverPubKey.(*ecdsa.PublicKey)
+
+			clientPriv := localClient.ecdsaPrivKey
+
+			// Generate the shared secret
+			sharedSecretX, _ := clientPriv.PublicKey.ScalarMult(serverPub.X, serverPub.Y, clientPriv.D.Bytes())
+			sharedSecret := sha256.Sum256(sharedSecretX.Bytes())
+			fmt.Printf("Client shared secret: %x\n", sharedSecret)
+
+			// Receive the signature from the server
+			sig := msg.ExtraContent
+
+			// Extract r and s from the signature
+			r := new(big.Int).SetBytes(sig[:32])
+			s := new(big.Int).SetBytes(sig[32:])
+
+			// Verify the signature
+			valid := ecdsa.Verify(serverPub, sharedSecret[:], r, s)
+			if valid {
 				UI.AppendContent("[blue]info[-]: Connection established with Bootnode")
-
+				UI.AppendContent("Signature verified. Secure communication established.")
 				ackReceived = true
 			} else {
-				UI.AppendContent(fmt.Sprintf("Unexpected response from bootnode: %s", confirmationMessage))
+				UI.AppendContent("[red]error[-]: Signature verification failed. Possible MITM attack.")
 			}
 		}
 
@@ -198,14 +245,12 @@ func registerWithBootnode(room string, localConn *net.UDPConn, bootnodeAddr *net
 			if retries < maxRetries {
 				// Add a short delay before retrying
 				time.Sleep(2 * time.Second)
+			} else {
+				// Exit if no acknowledgment was recieved from bootnode after max retry attempts
+				UI.AppendContent(fmt.Sprintf("[blue]info[-]: Failed to register with the bootnode after %d attempts. Exiting.\n", maxRetries))
+				os.Exit(1)
 			}
 		}
-	}
-
-	// Exit if no acknowledgment was recieved from bootnode after max retry attempts
-	if !ackReceived {
-		UI.AppendContent(fmt.Sprintf("[blue]info[-]: Failed to register with the bootnode after %d attempts. Exiting.\n", maxRetries))
-		os.Exit(1)
 	}
 }
 
